@@ -21,7 +21,7 @@ UniversalTelegramBot bot(BOT_TOKEN, client);
 unsigned long LastVerification = 0;
 const int delayVerification = 1000; 
 
-// Pins are configured in platformio.ini or User_Setup.h
+// Pins are configured in platformio.ini
 #define Black TFT_BLACK
 #define BLACK TFT_BLACK 
 #define White TFT_WHITE
