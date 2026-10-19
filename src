@@ -1,0 +1,311 @@
+#include <Arduino.h>
+#include <ESP8266WiFi.h>
+#include <WiFiClientSecure.h>
+#include <UniversalTelegramBot.h>
+#include <SPI.h>
+#include <TFT_ILI9163C.h>
+#include <Servo.h>
+#include <iostream>
+#include "../images.hpp"
+#include <TFT_eSPI.h>
+
+// --- Wi-Fi & Telegram Configuration  ---
+const char* ssid = "";
+const char* password = "";
+#define BOT_TOKEN ""
+
+X509List cert(TELEGRAM_CERTIFICATE_ROOT);
+WiFiClientSecure client;
+UniversalTelegramBot bot(BOT_TOKEN, client);
+
+unsigned long LastVerification = 0;
+const int delayVerification = 1000; 
+
+// Pins are configured in platformio.ini or User_Setup.h
+#define Black TFT_BLACK
+#define BLACK TFT_BLACK 
+#define White TFT_WHITE
+#define WHITE TFT_WHITE
+#define Red TFT_RED
+
+const int PinBacklight = D6; //LED PIN 
+
+TFT_eSPI tft = TFT_eSPI(); 
+
+// --- Servo, Button & Backlight Configuration ---
+Servo myServo;
+const int PinServo = D1;
+bool WorkingMotor = false; 
+
+const int PinBouton = D2;
+int PreviousState = LOW; // We state that the box is closed by default (button pressed)
+
+
+// === HELPER FUNCTION FOR SCROLLING ANIMATION ===
+void drawTextFrame(String lines[], int numLines, int offsetY, int h, int lineSpacing) {
+  tft.fillScreen(BLACK); 
+  
+  for (int i = 0; i < numLines; i++) {
+    int lineY = offsetY + (i * (h + lineSpacing));
+    
+    if (lineY > -20 && lineY < 128) { 
+      uint16_t w = tft.textWidth(lines[i]);
+      int startX = (128 - w) / 2; 
+      if (startX < 0) startX = 0;
+      
+      tft.setCursor(startX, lineY);
+      tft.print(lines[i]);
+    }
+  }
+}
+
+// === FUNCTION: CENTER AND WRAP TEXT CLEANLY ===
+void displayCenteredText(String text) {
+  tft.fillScreen(BLACK);
+  tft.setTextColor(WHITE, BLACK); 
+  tft.setTextSize(2); 
+  tft.setTextWrap(false); 
+
+  String lines[40]; 
+  int numLines = 0;
+  String currentLine = "";
+
+  text += " "; 
+
+  while (text.length() > 0 && numLines < 40) {
+    int spaceIndex = text.indexOf(' ');
+    if (spaceIndex == -1) break; 
+
+    String word = text.substring(0, spaceIndex);
+    text = text.substring(spaceIndex + 1);
+
+    String testLine = currentLine;
+    if (testLine.length() > 0) testLine += " ";
+    testLine += word;
+
+    uint16_t lineWidth = tft.textWidth(testLine);
+
+    if (lineWidth > 120) { 
+      if (currentLine.length() == 0) {
+        lines[numLines] = word;
+        numLines++;
+      } else {
+        lines[numLines] = currentLine; 
+        numLines++;
+        currentLine = word; 
+      }
+    } else {
+      currentLine = testLine; 
+    }
+  }
+  
+  if (currentLine.length() > 0 && numLines < 40) {
+    lines[numLines] = currentLine;
+    numLines++;
+  }
+
+  uint16_t h = tft.fontHeight();
+  
+  int lineSpacing = 4;
+  int totalHeight = (numLines * h) + ((numLines - 1) * lineSpacing);
+  int startY = (128 - totalHeight) / 2; 
+
+  if (startY >= 0) {
+    drawTextFrame(lines, numLines, startY, h, lineSpacing);
+  } 
+  else {
+    drawTextFrame(lines, numLines, 0, h, lineSpacing);
+    delay(2000); 
+
+    int maxScroll = totalHeight - 128 + 10; 
+
+    for (int offset = 0; offset <= maxScroll; offset += 3) {
+      drawTextFrame(lines, numLines, -offset, h, lineSpacing);
+      delay(20); 
+      yield(); 
+    }
+  }
+}
+
+// === Telegram messages reading ===
+void NewMessages(int numberMessages) {
+  for (int i = 0; i < numberMessages; i++) {
+    String messageText = bot.messages[i].text;
+    String idChat = bot.messages[i].chat_id;
+    
+    // --- BOX OPENING MANAGEMENT ---
+    if (digitalRead(PinBouton) == LOW) {
+      
+      myServo.write(75); 
+      
+      // Wait until the user opens the box
+      while (digitalRead(PinBouton) == LOW) {
+        delay(50);
+        yield(); 
+      }
+      
+      myServo.write(90); 
+      delay(200); 
+    } 
+
+    // Turn ON the screen backlight right before showing the new message
+    digitalWrite(PinBacklight, LOW); 
+
+    // --- IMAGES ---
+    if (messageText == "/Cute") {
+      tft.fillScreen(Black); 
+      yield();
+      tft.pushImage(0, 0, 128, 128, Cute);
+      yield();
+      bot.sendMessage(idChat, "Image Cute displayed ! 🥰", "");
+      yield();
+    } 
+    else if (messageText == "/Yeux_Coeur") {
+      tft.fillScreen(Black); 
+      yield();
+      tft.pushImage(0, 0, 128, 128, Yeux_Coeur);
+      yield();
+      bot.sendMessage(idChat, "Image Yeux Coeur displayed ! 😍", "");
+      yield();
+    }
+    else if (messageText == "/Coeur_Rouge") {
+      tft.fillScreen(Black); 
+      yield();
+      tft.pushImage(0, 10, 128, 115, Coeur_Rouge);
+      yield();
+      bot.sendMessage(idChat, "Coeur Rouge displayed ! ❤️", "");
+      yield();
+    }
+    else if (messageText == "/Naughty") {
+      tft.fillScreen(Black); 
+      yield();
+      tft.pushImage(0, 0, 128, 128, Naughty);
+      yield();
+      bot.sendMessage(idChat, "Image Naughty displayed ! 😏", "");
+      yield();
+    }
+    else if (messageText == "/Pink_Heart") {
+      tft.fillScreen(Black); 
+      yield();
+      tft.pushImage(0, 0, 128, 124, Pink_Heart);
+      yield();
+      bot.sendMessage(idChat, "Pink Heart displayed ! 💖", "");
+      yield();
+    }
+    else if (messageText == "/Angry") {
+      tft.fillScreen(Black); 
+      yield();
+      tft.pushImage(0, 0, 128, 128, Angry);
+      yield();
+      bot.sendMessage(idChat, "Image Angry displayed ! 😡", "");
+      yield();
+    }
+    else if (messageText == "/Surprised") {
+      tft.fillScreen(Black); 
+      yield();
+      tft.pushImage(0, 0, 128, 128, Surprised);
+      yield();
+      bot.sendMessage(idChat, "Image Surprised displayed ! 😮", "");
+      yield();
+    }
+    else if (messageText == "/Fire") {
+      tft.fillScreen(Black); 
+      yield();
+      tft.pushImage(0, 0, 128, 128, Fire);
+      yield();
+      bot.sendMessage(idChat, "Fire displayed ! 🔥", "");
+      yield();
+    }
+    
+    // --- MOTOR (Manual command) ---
+    else if (messageText == "moteur") {
+      if (digitalRead(PinBouton) == LOW) {
+        myServo.write(75); 
+        WorkingMotor = true; 
+        bot.sendMessage(idChat, "Servo is running ! ", "");
+      } else {
+        bot.sendMessage(idChat, "ignored action, box is already open", "");
+      }
+    }
+    
+    // --- DEFAULT Text ---
+    else {
+      displayCenteredText(messageText);
+      yield(); 
+      bot.sendMessage(idChat, "Message displayed on screen!", "");
+    }
+  }
+}
+
+void setup() {
+  // Hardware setup
+  pinMode(PinBouton, INPUT_PULLUP);
+  PreviousState = digitalRead(PinBouton);
+  
+  pinMode(PinBacklight, OUTPUT);
+  // Turn OFF screen initially if the box is closed, turn ON if already open
+  if (PreviousState == LOW) {
+    digitalWrite(PinBacklight, HIGH);
+  } else {
+    digitalWrite(PinBacklight, LOW);
+  }
+
+  myServo.attach(PinServo);
+  myServo.write(90); // Default position
+  
+  // TFT_eSPI initialization
+  tft.init();
+  
+  pinMode(PinBacklight, OUTPUT); // Reprend le contrôle de D6
+  if (PreviousState == HIGH) {
+    digitalWrite(PinBacklight, HIGH);  // Éteint si la boîte est fermée
+  } else {
+    digitalWrite(PinBacklight, LOW); // Allume si la boîte est ouverte
+  }
+
+  tft.setRotation(2);      
+  tft.setSwapBytes(true);  
+  tft.fillScreen(Black);
+
+  // Wi-Fi connection 
+  WiFi.begin(ssid, password);
+  client.setInsecure();
+
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+  }
+}
+
+void loop() {
+  int etatActuel = digitalRead(PinBouton);
+  
+  // --- DETECT BOX OPENING (LOW to HIGH) ---
+  if (etatActuel == HIGH && PreviousState == LOW) {
+    // ON N'ALLUME PLUS L'ÉCRAN ICI !
+    
+    if (WorkingMotor == true) {
+      myServo.write(90); // Stop motor
+      WorkingMotor = false; 
+    }
+    delay(50); // Anti-bouncing
+  }
+  
+  // --- DETECT BOX CLOSING (HIGH to LOW) ---
+  if (etatActuel == LOW && PreviousState == HIGH) {
+    digitalWrite(PinBacklight, HIGH); // Éteint l'écran (HIGH = OFF)
+    tft.fillScreen(BLACK);            // Efface la mémoire de l'écran
+    delay(50); // Anti-bouncing
+  }
+  
+  PreviousState = etatActuel;
+
+  // --- Telegram Management ---
+  if (millis() - LastVerification > delayVerification) {
+    int nbMessages = bot.getUpdates(bot.last_message_received + 1);
+    while (nbMessages) {
+      NewMessages(nbMessages);
+      nbMessages = bot.getUpdates(bot.last_message_received + 1);
+    }
+    LastVerification = millis();
+  }
+}
